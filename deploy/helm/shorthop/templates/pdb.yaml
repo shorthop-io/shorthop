@@ -1,0 +1,11 @@
+{{- if gt (int .Values.replicaCount) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "shorthop.fullname" . }}
+  labels: {{- include "shorthop.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels: {{- include "shorthop.selector" . | nindent 6 }}
+{{- end }}

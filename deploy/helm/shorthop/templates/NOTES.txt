@@ -1,0 +1,10 @@
+Shorthop {{ .Values.image.tag | default .Chart.AppVersion }} is starting ({{ .Values.replicaCount }} replica(s)).
+
+1. Give the first admin a password:
+     kubectl -n {{ .Release.Namespace }} exec -it deploy/{{ include "shorthop.fullname" . }} -- python -m app.cli admin {{ .Values.env.BOOTSTRAP_ADMIN_EMAIL | default "you@example.com" }}
+
+2. Open the web UI{{ if .Values.ingress.enabled }} at https://{{ .Values.ingress.host }}{{ else }}:
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "shorthop.fullname" . }} 8080:{{ .Values.service.port }}
+   then http://localhost:8080{{ end }}
+
+3. Send it alerts: https://docs.shorthop.io/connect/prometheus

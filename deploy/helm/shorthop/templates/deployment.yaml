@@ -1,0 +1,92 @@
+{{- if not .Values.postgres.host }}
+{{- fail "postgres.host is required: Shorthop needs a Postgres database (see https://docs.shorthop.io/install/kubernetes)" }}
+{{- end }}
+{{- if not (or .Values.secret.existingSecret .Values.secret.create) }}
+{{- fail "set secret.existingSecret, or secret.create=true with secret.values (SECRET_KEY, POSTGRES_PASSWORD)" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "shorthop.fullname" . }}
+  labels: {{- include "shorthop.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "shorthop.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "shorthop.selector" . | nindent 8 }}
+      annotations:
+        {{- if .Values.secret.create }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}{{ toYaml . | nindent 8 }}{{- end }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      # SIGTERM: keeps serving 5 s, then finishes in-flight requests for up to 20 s.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: shorthop
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - { name: http, containerPort: 8080 }
+            {{- if .Values.public.enabled }}
+            - { name: public, containerPort: 8081 }
+            {{- end }}
+          env:
+            - { name: PORT, value: "8080" }
+            - { name: PUBLIC_PORT, value: {{ ternary "8081" "0" .Values.public.enabled | quote }} }
+            - { name: POSTGRES_HOST, value: {{ .Values.postgres.host | quote }} }
+            - { name: POSTGRES_PORT, value: {{ .Values.postgres.port | quote }} }
+            - { name: POSTGRES_DB, value: {{ .Values.postgres.database | quote }} }
+            - { name: POSTGRES_USER, value: {{ .Values.postgres.user | quote }} }
+            - { name: POSTGRES_SSLMODE, value: {{ .Values.postgres.sslmode | quote }} }
+            {{- range $k, $v := .Values.env }}
+            {{- if $v }}
+            - { name: {{ $k }}, value: {{ $v | quote }} }
+            {{- end }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "shorthop.secretName" . }}
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - { name: tmp, emptyDir: {} }
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      affinity:
+        {{- if .Values.affinity }}
+        {{- toYaml .Values.affinity | nindent 8 }}
+        {{- else }}
+        # Spread replicas over nodes when there is more than one.
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: {{- include "shorthop.selector" . | nindent 20 }}
+        {{- end }}

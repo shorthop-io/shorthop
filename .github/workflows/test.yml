@@ -1,0 +1,34 @@
+# Tests on every push and pull request: the suite on SQLite and on Postgres (the HA tests need
+# real Postgres), the generated docs, and the Helm chart.
+name: test
+on:
+  push: { branches: [main] }
+  pull_request:
+permissions: { contents: read }
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env: { POSTGRES_DB: shorthop, POSTGRES_USER: shorthop, POSTGRES_PASSWORD: test }
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: pip install -r requirements-dev.txt
+      - name: tests (SQLite)
+        run: python -m pytest -q
+      - name: tests (Postgres)
+        env: { POSTGRES_HOST: localhost, POSTGRES_PASSWORD: test }
+        run: python -m pytest -q
+      - uses: azure/setup-helm@v4
+      - name: helm lint
+        run: helm lint deploy/helm/shorthop --set postgres.host=pg --set secret.existingSecret=s
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: web build
+        working-directory: web
+        run: npm ci && npm run build

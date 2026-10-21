@@ -1,0 +1,16 @@
+flask>=3.0.0
+flask-smorest>=0.44.0
+marshmallow>=3.20.0
+SQLAlchemy>=2.0.0
+alembic>=1.13.0
+psycopg[binary]>=3.1
+bcrypt>=4.1.0
+# Google SSO — ID-token verification (signature/iss/aud/exp + cert caching).
+google-auth>=2.28.0
+requests>=2.31.0
+waitress>=3.0
+prometheus-client>=0.20
+# Reading Prometheus's own config (external labels) for the shadow comparison.
+PyYAML>=6.0
+# The Slack app: Web API + Socket Mode (its built-in WebSocket client; no other dependencies).
+slack_sdk>=3.40.1

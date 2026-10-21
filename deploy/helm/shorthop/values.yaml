@@ -1,0 +1,89 @@
+# Shorthop Helm chart. Guide: https://docs.shorthop.io/install/kubernetes
+
+image:
+  repository: ghcr.io/shorthop-io/shorthop
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# More than one replica is safe: every pod works the delivery queue, exactly one (the leader)
+# runs housekeeping, and the startup migration takes a lock. Needs Postgres (not SQLite).
+replicaCount: 2
+
+# --- Postgres (required) -------------------------------------------------------------
+# Shorthop does not bring a database. Point it at one you run (CloudNativePG, a managed
+# Postgres, …). The password comes from `secret` below (key POSTGRES_PASSWORD).
+postgres:
+  host: ""
+  port: 5432
+  database: shorthop
+  user: shorthop
+  sslmode: prefer
+
+# --- Secrets ---------------------------------------------------------------------------
+# Either name a Secret you manage (recommended) or let the chart create one from `values`.
+# Keys read: SECRET_KEY, POSTGRES_PASSWORD (required); RELAY_KEY, SMTP_PASSWORD,
+# GOOGLE_CLIENT_SECRET, SLACK_BOT_TOKEN, SLACK_APP_TOKEN, METRICS_TOKEN (optional).
+secret:
+  existingSecret: ""
+  create: false
+  values: {}
+
+# --- Settings (plain environment variables) -------------------------------------------------
+# Every setting: https://docs.shorthop.io/configuration
+env:
+  BOOTSTRAP_ADMIN_EMAIL: ""
+  # The address people open the web UI at.
+  PUBLIC_URL: ""
+  # The internet-facing address of the public listener (phones, calendar feeds).
+  PUBLIC_API_URL: ""
+  RELAY_URL: https://relay.shorthop.io
+
+# --- The two listeners ----------------------------------------------------------------------
+# `http` (8080) is the whole product: web UI, alert ingest, MCP, API. Keep it private.
+# `public` (8081) serves only what phones and calendar apps need, with device tokens only.
+public:
+  enabled: true
+
+service:
+  type: ClusterIP
+  port: 8080
+  publicPort: 8081
+
+# The web UI / ingest. Expose it on an INTERNAL ingress class (VPN, office network).
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  annotations: {}
+  tls: []
+
+# The public listener for phones. The only thing that belongs on the internet.
+publicIngress:
+  enabled: false
+  className: ""
+  host: ""
+  annotations: {}
+  tls: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 160Mi
+  limits:
+    memory: 384Mi
+
+podDisruptionBudget:
+  # Only rendered with more than one replica.
+  minAvailable: 1
+
+serviceMonitor:
+  # Needs the Prometheus Operator CRDs.
+  enabled: false
+  interval: 30s
+  labels: {}
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

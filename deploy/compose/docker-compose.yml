@@ -1,0 +1,52 @@
+# Shorthop with its own Postgres — the quickest way to run it on one machine.
+#
+#   cp .env.example .env        # then fill in the three values marked REQUIRED
+#   docker compose up -d
+#   docker compose exec shorthop python -m app.cli admin you@example.com   # first admin
+#
+# Then open http://localhost:8080. Full guide: https://docs.shorthop.io/install/docker-compose
+
+services:
+  shorthop:
+    image: ghcr.io/shorthop-io/shorthop:${SHORTHOP_VERSION:-0}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: shorthop
+      POSTGRES_USER: shorthop
+      PORT: "8080"
+      PUBLIC_PORT: "8081"
+    ports:
+      # The web UI, alert ingest and the API. Keep it PRIVATE: localhost, your LAN or a VPN.
+      - "${SHORTHOP_BIND:-127.0.0.1}:${SHORTHOP_PORT:-8080}:8080"
+      # The only listener meant for the internet: what the phone app and calendar apps call.
+      # Put your reverse proxy / tunnel in front of it and set PUBLIC_API_URL in .env.
+      - "${SHORTHOP_PUBLIC_BIND:-127.0.0.1}:${SHORTHOP_PUBLIC_PORT:-8081}:8081"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: shorthop
+      POSTGRES_USER: shorthop
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shorthop -d shorthop"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres:
