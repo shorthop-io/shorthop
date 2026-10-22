@@ -27,6 +27,10 @@ _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 def _read_password(from_stdin: bool) -> str:
     if from_stdin:
         return sys.stdin.readline().rstrip("\n")
+    if not sys.stdin.isatty():
+        # `kubectl exec` without -t, or a pipe: there is nobody to prompt.
+        sys.exit("No terminal to prompt on. Run with -it, or pipe the password and add "
+                 "--password-stdin; nothing was changed.")
     first = getpass.getpass("Password (at least 12 characters): ")
     if getpass.getpass("Again: ") != first:
         sys.exit("The two passwords differ; nothing was changed.")

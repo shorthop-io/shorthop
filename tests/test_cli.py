@@ -46,3 +46,11 @@ def test_password_comes_from_stdin_never_an_argument(monkeypatch, capsys):
     assert cli.main(["admin", "pipe@example.com", "--password-stdin"]) == 0
     assert "piped in password" not in capsys.readouterr().out
     assert verify_password("piped in password", _user("pipe@example.com").password_hash)
+
+
+def test_without_a_terminal_it_says_how_instead_of_a_traceback(monkeypatch):
+    # `kubectl exec -i … < password` without --password-stdin: no prompt is possible.
+    monkeypatch.setattr("sys.stdin", io.StringIO("piped in password\n"))
+    with pytest.raises(SystemExit) as e:
+        cli.main(["admin", "notty@example.com"])
+    assert "--password-stdin" in str(e.value)

@@ -83,7 +83,9 @@ def test_layer_validation(bad):
 def _schedule(client, tok, users, **kw):
     body = {"name": kw.pop("name", "primary"), "timezone": "UTC", "layers": [
         {"name": "daily", "users": [u.id for u in users], "rotation_hours": 24,
-         "start": (now() - dt.timedelta(days=10)).strftime("%Y-%m-%dT%H:%M")}], **kw}
+         # On the hour, so a shift change never lands on a half-hour window a test opens
+         # (otherwise a run between hh:30 and hh:31 fails).
+         "start": (now() - dt.timedelta(days=10)).strftime("%Y-%m-%dT%H:00")}], **kw}
     r = client.post("/api/v1/schedules", headers=bearer(tok), json=body)
     assert r.status_code == 201, r.json
     return r.json

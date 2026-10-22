@@ -10,7 +10,10 @@ metadata:
   name: {{ include "shorthop.fullname" $ }}{{ if eq $kind "public" }}-public{{ end }}
   labels: {{- include "shorthop.labels" $ | nindent 4 }}
   {{- with $ing.annotations }}
-  annotations: {{- toYaml . | nindent 4 }}
+  annotations:
+    {{- range $k, $v := . }}
+    {{ $k }}: {{ $v | toString | quote }}
+    {{- end }}
   {{- end }}
 spec:
   {{- with $ing.className }}

@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 ALLOW = [
     "app", "migrations", "tests", "web", "docs", "deploy",
     "main.py", "requirements.txt", "requirements-dev.txt", "alembic.ini", "Dockerfile",
-    ".dockerignore", "README.md", "LICENSE",
+    ".dockerignore", "README.md", "LICENSE", "SECURITY.md", "TRADEMARK.md", "CONTRIBUTING.md",
     "scripts/config_reference.py", "scripts/demo_seed.py", "scripts/export_public.py",
 ]
 SKIP_DIRS = {"__pycache__", "node_modules", "dist", ".pytest_cache", ".venv"}

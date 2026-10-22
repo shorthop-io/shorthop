@@ -3,8 +3,8 @@ name: shorthop
 description: Self-hosted alert routing, on-call schedules and paging — replaces Alertmanager and the pager service behind it.
 type: application
 # The chart and the app are released together: one version for both.
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.1.1
+appVersion: "0.1.1"
 home: https://shorthop.io
 sources:
   - https://github.com/shorthop-io/shorthop
