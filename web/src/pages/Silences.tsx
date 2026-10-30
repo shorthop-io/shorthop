@@ -58,7 +58,7 @@ export function Silences({ search }: { search: URLSearchParams }) {
               <div className="silence-matchers">
                 {s.matchers.map((m, i) => <code key={i} className="matcher">{matcherText(m)}</code>)}
               </div>
-              <p className="silence-comment">{s.comment}</p>
+              <p className="silence-comment">{s.comment || <span className="muted">no reason given</span>}</p>
               <p className="muted small">
                 {s.created_by} · created {relative(s.created_at, now)}
                 {s.expired_by && <> · ended early by {s.expired_by}</>}
@@ -164,12 +164,12 @@ export function SilenceNew({ search }: { search: URLSearchParams }) {
           </fieldset>
 
           <label>
-            Why
-            <textarea rows={3} required maxLength={2000} value={comment} onChange={(e) => setComment(e.target.value)}
+            Why <span className="muted small">(optional)</span>
+            <textarea rows={3} maxLength={2000} value={comment} onChange={(e) => setComment(e.target.value)}
               placeholder="e.g. deploying the fix for the consumer, re-check at 16:00" />
           </label>
           <ErrorNotice>{error}</ErrorNotice>
-          <div><button className="btn-primary" disabled={busy || !comment.trim()}>Create silence</button></div>
+          <div><button className="btn-primary" disabled={busy}>Create silence</button></div>
         </form>
 
         <section className="card pad">

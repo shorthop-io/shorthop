@@ -54,6 +54,7 @@ class SettingsInSchema(Schema):
     smtp_starttls = fields.Bool(allow_none=True)
     relay_url = fields.Str(allow_none=True, validate=validate.Length(max=253))
     relay_key = fields.Str(allow_none=True, validate=validate.Length(max=200))
+    relay_send_content = fields.Bool(allow_none=True)
     slack_bot_token = fields.Str(allow_none=True, validate=validate.Length(max=300))
     slack_app_token = fields.Str(allow_none=True, validate=validate.Length(max=300))
     incident_levels = fields.List(fields.Dict(), allow_none=True)

@@ -260,7 +260,12 @@ export function IncidentDetail({ id }: { id: string }) {
               <h3 className="sub">After the fact</h3>
               <div className="more-actions">
                 <AddNote busy={busy} onSubmit={(text) => act(() => paging.addIncidentNote(i.id, text))} />
+                <Snooze busy={busy} onSubmit={(minutes, comment) => act(async () => {
+                  await paging.snoozeIncident(i.id, minutes, comment);
+                  return paging.getIncident(i.id);
+                })} />
               </div>
+              <p className="muted small">Flapping? Snoozing a resolved incident silences its labels, so the next flap is recorded but pages nobody.</p>
             </section>
           )}
 
@@ -271,6 +276,7 @@ export function IncidentDetail({ id }: { id: string }) {
                 <li key={a.id}>
                   <Link to={`/alerts/${a.id}`} className="alert-name">{a.alertname}</Link> <StatusBadge alert={a} />
                   {a.annotations.summary && <div className="small">{a.annotations.summary}</div>}
+                  {a.annotations.description && <div className="small muted alert-description">{a.annotations.description}</div>}
                   <Labels labels={a.labels} skip={["alertname", ...Object.keys(i.group_labels)]} />
                 </li>
               ))}
@@ -295,6 +301,13 @@ export function IncidentDetail({ id }: { id: string }) {
               <div><dt>Escalation</dt><dd>{i.policy_name ? <Link to="/escalation">{i.policy_name}</Link> : <span className="muted">none — nobody is paged</span>}</dd></div>
               {i.status === "triggered" && <div><dt>Next step</dt><dd>{i.next_step_at ? `step ${i.next_step + 1}, ${nextStep(i, now)?.replace("next escalation ", "")}` : "none left"}</dd></div>}
               {i.resolved_at && <div><dt>Resolved</dt><dd>{wall(i.resolved_at)}{i.resolved_by ? ` · ${i.resolved_by}` : ""}</dd></div>}
+              {(i.jira_issues ?? []).map((j) => (
+                <div key={j.issue_key}><dt>Jira</dt><dd>
+                  <a href={j.issue_url} target="_blank" rel="noreferrer">{j.issue_key}</a>
+                  <span className="muted small"> · {j.closed_at ? "closed" : "open"}{j.pending ? ` · ${j.pending} update${j.pending === 1 ? "" : "s"} waiting` : ""}</span>
+                  {j.error && <div className="error small">{j.error}</div>}
+                </dd></div>
+              ))}
             </dl>
           </section>
         </div>
@@ -447,7 +460,7 @@ function Snooze({ busy, onSubmit }: { busy: boolean; onSubmit: (minutes: number,
               {SNOOZES.map(([m, l]) => <option key={m} value={m}>{l}</option>)}
             </select>
           </label>
-          <label>Why
+          <label>Why <span className="muted small">(optional)</span>
             <input value={comment} maxLength={2000} onChange={(e) => setComment(e.target.value)} placeholder="deploy in progress" />
           </label>
         </div>

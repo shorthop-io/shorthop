@@ -6,8 +6,10 @@ RELAY_URL / RELAY_KEY environment), phones are registered with it and pages go t
 With no relay configured, pages go straight to Expo with this install's own credentials —
 how our own lab runs, and how anyone publishing their own build of the app runs.
 
-What the relay receives, and nothing more: the phone's Expo push token, its platform and name
-(shown on the bill), and per page an opaque incident id + the event. **Never alert content.**
+What the relay receives: the phone's Expo push token, its platform and name (shown on the bill),
+and per page an opaque incident id + the event — plus, unless Settings → Push relay → "Show
+what fired" is off, the notification's title and body (incident title + alert summary), so the
+lock screen says what happened. The relay forwards those to Expo and never stores or logs them.
 
 ⚠️ The key is a credential: never logged, never returned by the settings API.
 """
@@ -163,11 +165,20 @@ class PushResult:
     reason: str | None = None   # for signed_out: why the relay signed the phone out
 
 
-def push(relay_device_id: str, incident_id: str, event: str) -> PushResult:
-    """Page one phone. Raises RelayError for anything worth retrying later."""
+def send_content() -> bool:
+    return bool(settings.get("relay_send_content"))
+
+
+def push(relay_device_id: str, incident_id: str, event: str,
+         text: tuple[str, str] | None = None) -> PushResult:
+    """Page one phone. `text` = (title, body) for the lock screen; None = the relay's generic
+    wording. Raises RelayError for anything worth retrying later."""
     ev = event if event in RELAY_EVENTS else "triggered"
-    resp = _call("POST", "/v1/push", {"device_id": relay_device_id, "incident_id": incident_id,
-                                       "event": ev})
+    body = {"device_id": relay_device_id, "incident_id": incident_id, "event": ev}
+    if text is not None:
+        # An older relay drops unknown fields (EXCLUDE) and shows its generic text instead.
+        body["title"], body["body"] = text
+    resp = _call("POST", "/v1/push", body)
     if resp.status_code == 200:
         body = resp.json() or {}
         return PushResult(body.get("outcome") or "error", body.get("error"))

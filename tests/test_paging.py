@@ -484,3 +484,20 @@ def test_webhook_template_reads_labels_and_annotations(client, setup, monkeypatc
     delivery.send_webhook(row.config, body, None)
     # the first OPEN alert wins; a label nobody carries renders empty rather than failing
     assert json.loads(captured["data"])["text"] == 'L2 L2 a disk "full" '
+
+
+def test_a_resolved_incident_can_be_snoozed_so_its_next_flap_does_not_page(client, setup):
+    from app import delivery, incidents
+    client.post(PROM, json=[_prom_alert()], headers=bearer(setup["itok"]))
+    (inc,) = _incidents()
+    h = bearer(setup["tok"])
+    assert client.post(f"/api/v1/incidents/{inc.id}/resolve", headers=h, json={}).status_code == 200
+    r = client.post(f"/api/v1/incidents/{inc.id}/snooze", headers=h, json={"minutes": 120})
+    assert r.status_code == 200, r.json
+    client.post(PROM, json=[_prom_alert()], headers=bearer(setup["itok"]))   # it flaps back
+    incidents.run_due()
+    delivery.deliver_pending()
+    new = [i for i in _incidents() if i.resolved_at is None]
+    assert len(new) == 1 and new[0].id != inc.id
+    sent = SessionLocal.scalars(select(Notification).where(Notification.incident_id == new[0].id)).all()
+    assert sent == []

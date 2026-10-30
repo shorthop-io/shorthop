@@ -3,6 +3,7 @@ import datetime as dt
 
 from flask import g
 from flask_smorest import Blueprint, abort
+from marshmallow import fields, validate
 from sqlalchemy import select
 
 from .. import alerts as alert_ops
@@ -12,7 +13,7 @@ from ..db import SessionLocal
 from ..models import Silence, aware, now
 from .schemas import (
     AlertListArgs, HistorySchema, NoteSchema, OccurrenceDetailSchema, OccurrenceSchema,
-    ResolveSchema, SilenceCreateSchema, SilenceListArgs, SilencePreviewSchema, SilenceSchema,
+    ResolveSchema, SilenceCreateSchema, _In, SilenceListArgs, SilencePreviewSchema, SilenceSchema,
 )
 
 blp = Blueprint("alerts", __name__, url_prefix="/api/v1",
@@ -99,7 +100,8 @@ def resolve_alert(payload, occurrence_id):
 @blp.arguments(NoteSchema)
 @blp.response(200, OccurrenceDetailSchema)
 def note_alert(payload, occurrence_id):
-    occ = _act(alert_ops.add_note, occurrence_id, g.identity.name, payload["text"])
+    occ = _act(alert_ops.add_note, occurrence_id, g.identity.name, payload["text"],
+               kind=payload["kind"])
     return _detail(occ)
 
 
@@ -145,6 +147,25 @@ def create_silence(payload):
              payload["ends_at"], payload["comment"], g.identity.name,
              team_id=payload.get("team_id"))
     record(g.identity.name, "silence.create", target=s.id, detail=s.comment)
+    s.state = _state(s, now())
+    return s
+
+
+class AlertSilenceSchema(_In):
+    minutes = fields.Int(required=True, validate=validate.Range(min=1))
+    comment = fields.Str(load_default=None, allow_none=True, validate=validate.Length(max=2000))
+
+
+@blp.route("/alerts/<occurrence_id>/silence", methods=["POST"])
+@require("alerts:write")
+@blp.arguments(AlertSilenceSchema)
+@blp.response(201, SilenceSchema)
+def silence_alert(payload, occurrence_id):
+    """One tap from the phone: silence this alert (its signature labels) for `minutes`, no
+    reason needed. Works on a resolved alert — the way to quiet one that flaps."""
+    s = _act(alert_ops.silence_alert, occurrence_id, g.identity.name, payload["minutes"],
+             comment=payload.get("comment"))
+    record(g.identity.name, "silence.create", target=s.id, detail=s.comment or f"alert {occurrence_id}")
     s.state = _state(s, now())
     return s
 

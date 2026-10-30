@@ -195,6 +195,19 @@ def test_slack_failure_keeps_the_replies_and_backs_off(client, setup, fake):
     assert not msg.dirty and msg.pending_replies == [] and msg.error is None
 
 
+def test_suggestion_reaches_slack_marked_unverified(client, setup, fake):
+    _slack_channel(setup["policy"]["id"], client, setup["tok"])
+    iid = _fire(client, setup)
+    _dispatch()
+    r = client.post(f"/api/v1/incidents/{iid}/notes", headers=bearer(setup["tok"]),
+                    json={"text": "likely the deploy at 14:02", "kind": "suggestion"})
+    assert r.status_code == 200
+    _dispatch()
+    replies = [x["text"] for x in fake.of("chat.postMessage") if x.get("thread_ts")]
+    assert replies[-1] == (":robot_face: Suggestion from boss@example.com (unverified): "
+                           "likely the deploy at 14:02")
+
+
 def test_slack_channel_config_is_validated(client, setup):
     r = client.post("/api/v1/channels", headers=bearer(setup["tok"]),
                     json={"name": "x", "kind": "slack", "config": {"channel_id": "#ops"}})

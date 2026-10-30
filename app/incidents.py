@@ -68,8 +68,9 @@ def _slack(db, inc: Incident, reply: str | None = None) -> None:
     """The incident changed: its Slack messages are redrawn by the dispatch loop, and `reply`
     goes into their threads. In the caller's transaction, so a rolled-back action leaves Slack
     alone. Whichever door the change came through (web, phone, MCP, Slack), Slack shows it."""
-    from . import slack
+    from . import jira, slack
     slack.touch(db, inc.id, reply)
+    jira.touch(db, inc.id, reply)   # the same line, as a comment on the incident's Jira issue
 
 
 def _derive_level(inc: Incident) -> None:
@@ -370,20 +371,21 @@ def add_responder(incident_id: str, actor: str, user_id: str | None = None,
     return immediate
 
 
-def add_note(incident_id: str, actor: str, text: str) -> Incident:
+def add_note(incident_id: str, actor: str, text: str, kind: str = "note") -> Incident:
     """A note on the incident: written onto every open alert's timeline (and the Slack
     threads). On a resolved incident it goes on its alerts all the same — the debrief happens
-    after."""
-    from .alerts import AlertError
+    after. kind="suggestion" marks an automation's note (an AI triage summary), shown apart
+    from people's notes everywhere it appears."""
+    from .alerts import check_note
 
-    text = (text or "").strip()
-    if not text:
-        raise AlertError("note is empty")
+    text = check_note(text, kind)
     inc = get(incident_id)
     targets = [o for o in inc.alerts if o.resolved_at is None] or list(inc.alerts)
     for occ in targets:
-        occ.events.append(TimelineEvent(kind="note", actor=actor, detail=text[:4000]))
-    _slack(SessionLocal, inc, f":memo: {actor}: {text[:2900]}")
+        occ.events.append(TimelineEvent(kind=kind, actor=actor, detail=text[:4000]))
+    prefix = (f":robot_face: Suggestion from {actor} (unverified)" if kind == "suggestion"
+              else f":memo: {actor}")
+    _slack(SessionLocal, inc, f"{prefix}: {text[:2900]}")
     SessionLocal.commit()
     return inc
 
@@ -421,8 +423,8 @@ def snooze(incident_id: str, actor: str, minutes: int, comment: str | None = Non
     from .alerts import AlertError
 
     inc = get(incident_id)
-    if inc.resolved_at is not None:
-        raise AlertError("this incident is already resolved")
+    # A resolved incident may be snoozed too: a flapping one is resolved between flaps, and a
+    # silence on its labels is what keeps the next flap from opening a new page.
     m = snooze_matchers(inc)
     if not m:
         raise AlertError("this incident's alerts share no labels to silence on — "
@@ -629,6 +631,9 @@ def _destinations(db, targets: list[dict], severity: str = "") -> list[dict]:
                 cfg_ = ch.config or {}
                 add("slack", f"channel {ch.name}",
                     "#" + (cfg_.get("channel_name") or cfg_.get("channel_id") or "?"), ch.id)
+            elif ch.kind == "jira":
+                add("jira", f"channel {ch.name}",
+                    "Jira " + ((ch.config or {}).get("project_key") or "?"), ch.id)
     return out
 
 

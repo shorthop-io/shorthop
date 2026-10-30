@@ -6,7 +6,7 @@ import { Empty, ErrorNotice, Field, ShowOnce } from "../components/ui";
 
 const MASK = "••••••";
 const EVENTS: WebhookEvent[] = ["triggered", "escalated", "resolved"];
-const VARIABLES = ["text", "headline", "title", "severity", "number", "url", "status", "verb", "event",
+const VARIABLES = ["text", "headline", "title", "severity", "number", "incident_id", "url", "status", "verb", "event",
   "summary", "description", "history", "alerts_text", "alert_count", "open_count", "acknowledged_by"];
 
 interface Preset {
@@ -32,21 +32,30 @@ const PRESETS: Preset[] = [
   { key: "jira", label: "Jira issue", url: "https://<site>.atlassian.net/rest/api/2/issue", method: "POST",
     headers: [["Authorization", "Basic <base64 of email:api-token>"]],
     template: '{"fields": {"project": {"key": "OPS"}, "issuetype": {"name": "Task"}, "summary": "{{headline}}", "description": "{{text}}"}}',
-    events: ["triggered"], hint: "Opens one issue per incident — so only on 'triggered'. Set your project key and issue type." },
+    events: ["triggered"], hint: "Opens one issue per incident — so only on 'triggered'. A webhook never learns the issue's key, so it cannot comment or close it: for that, use the Jira channel kind instead." },
+  { key: "ai-triage", label: "AI triage agent", url: "", method: "POST", headers: [],
+    template: '{"incident_id": "{{incident_id}}", "title": "{{title}}", "severity": "{{severity}}", "url": "{{url}}", "alerts": "{{alerts_text}}", "history": "{{history}}"}',
+    events: ["triggered"],
+    hint: "Your own agent: it investigates and writes back a note with kind \"suggestion\". Put this channel in the first escalation step. See docs/connect/ai-triage.md." },
 ];
 
 interface Draft {
-  id: string | null; name: string; kind: "email" | "webhook" | "slack"; to: string; url: string;
+  id: string | null; name: string; kind: "email" | "webhook" | "slack" | "jira"; to: string; url: string;
   slackId: string; slackName: string;
+  jira: { site: string; email: string; token: string; project: string; issueType: string; labels: string; done: string };
   method: "POST" | "PUT" | "PATCH"; headers: [string, string][]; template: string; events: WebhookEvent[];
   enabled: boolean;
 }
-const EMPTY: Draft = { id: null, name: "", kind: "email", to: "", url: "", slackId: "", slackName: "", method: "POST", headers: [],
-  template: "", events: [], enabled: true };
+const EMPTY_JIRA: Draft["jira"] = { site: "", email: "", token: "", project: "", issueType: "Task", labels: "", done: "" };
+const EMPTY: Draft = { id: null, name: "", kind: "email", to: "", url: "", slackId: "", slackName: "", jira: EMPTY_JIRA,
+  method: "POST", headers: [], template: "", events: [], enabled: true };
 
 function fromChannel(c: Channel): Draft {
   return { id: c.id, name: c.name, kind: c.kind, to: (c.config.to ?? []).join(", "), url: c.config.url ?? "",
     slackId: c.config.channel_id ?? "", slackName: c.config.channel_name ?? "",
+    jira: { site: c.config.site ?? "", email: c.config.email ?? "", token: c.config.api_token ?? "",
+      project: c.config.project_key ?? "", issueType: c.config.issue_type ?? "Task",
+      labels: (c.config.labels ?? []).join(" "), done: c.config.done_transition ?? "" },
     method: c.config.method ?? "POST", headers: Object.entries(c.config.headers ?? {}),
     template: c.config.body_template ?? "", events: c.config.events ?? [], enabled: c.enabled };
 }
@@ -54,6 +63,12 @@ function fromChannel(c: Channel): Draft {
 function toConfig(d: Draft): ChannelConfig {
   if (d.kind === "email") return { to: d.to.split(",").map((x) => x.trim()).filter(Boolean) };
   if (d.kind === "slack") return { channel_id: d.slackId, channel_name: d.slackName };
+  if (d.kind === "jira") {
+    const j = d.jira;
+    return { site: j.site.trim(), email: j.email.trim() || undefined, api_token: j.token, project_key: j.project.trim(),
+      issue_type: j.issueType.trim() || "Task", labels: j.labels.split(/[\s,]+/).filter(Boolean),
+      done_transition: j.done.trim() || undefined };
+  }
   const headers = Object.fromEntries(d.headers.filter(([k]) => k.trim()).map(([k, v]) => [k.trim(), v]));
   return { url: d.url.trim(), method: d.method, headers, body_template: d.template.trim() || undefined,
     events: d.events.length ? d.events : undefined };
@@ -87,7 +102,7 @@ export function Channels() {
     setResults({ ...results, [c.id]: "sending…" });
     try {
       const r = await paging.testChannel(c.id);
-      setResults((x) => ({ ...x, [c.id]: r.ok ? "✓ delivered" : `✗ ${r.error}` }));
+      setResults((x) => ({ ...x, [c.id]: r.ok ? `✓ ${r.detail ?? "delivered"}` : `✗ ${r.error}` }));
     } catch (e) {
       setResults((x) => ({ ...x, [c.id]: `✗ ${(e as Error).message}` }));
     }
@@ -112,7 +127,7 @@ export function Channels() {
         <h2>Channels</h2>
         {manage && !draft && <button className="btn-primary" onClick={() => { setDraft({ ...EMPTY }); setCreated(null); }}><Icon name="plus" size={15} /> New channel</button>}
       </div>
-      <p className="glance">Destinations that are not a person: a shared mailbox, a Slack channel through the Shorthop Slack app (one live message per incident, with buttons), or a webhook — Teams, Discord, Telegram, a Jira issue, or your own endpoint. People are reached by their own contact rules.</p>
+      <p className="glance">Destinations that are not a person: a shared mailbox, a Slack channel through the Shorthop Slack app (one live message per incident, with buttons), a Jira project (one issue per incident, commented as it changes and closed when it resolves), or a webhook — Teams, Discord, Telegram, or your own endpoint. People are reached by their own contact rules.</p>
 
       {created?.secret && (
         <ShowOnce label={`Signing secret for ${created.name}`} value={created.secret}>
@@ -125,11 +140,13 @@ export function Channels() {
           <Field label="Name"><input required maxLength={200} value={draft.name} onChange={(e) => set({ name: e.target.value })} placeholder="ops mailbox" /></Field>
           {!draft.id && (
             <div className="seg">
-              {(["email", "slack", "webhook"] as const).map((k) => <button key={k} type="button" className={`seg-btn${draft.kind === k ? " active" : ""}`} onClick={() => set({ kind: k })}>{k === "email" ? "Email" : k === "slack" ? "Slack app" : "Webhook"}</button>)}
+              {(["email", "slack", "jira", "webhook"] as const).map((k) => <button key={k} type="button" className={`seg-btn${draft.kind === k ? " active" : ""}`} onClick={() => set({ kind: k })}>{({ email: "Email", slack: "Slack app", jira: "Jira", webhook: "Webhook" })[k]}</button>)}
             </div>
           )}
           {draft.kind === "slack" ? (
             <SlackChannelPicker id={draft.slackId} onPick={(slackId, slackName) => set({ slackId, slackName, name: draft.name || slackName })} />
+          ) : draft.kind === "jira" ? (
+            <JiraFields value={draft.jira} editing={!!draft.id} onChange={(jira) => set({ jira })} />
           ) : draft.kind === "email" ? (
             <Field label="Send to" hint="Comma-separated, up to 20 addresses."><input required value={draft.to} onChange={(e) => set({ to: e.target.value })} placeholder="ops@example.com" /></Field>
           ) : (
@@ -186,7 +203,8 @@ export function Channels() {
           {draft.id && <label className="check"><input type="checkbox" checked={draft.enabled} onChange={(e) => set({ enabled: e.target.checked })} /> Enabled</label>}
           <ErrorNotice>{formError}</ErrorNotice>
           <div className="detail-actions">
-            <button className="btn-primary" disabled={!draft.name.trim() || !(draft.kind === "email" ? draft.to.trim() : draft.kind === "slack" ? draft.slackId : draft.url.trim())}>{draft.id ? "Save" : "Create"}</button>
+            <button className="btn-primary" disabled={!draft.name.trim() || !(draft.kind === "email" ? draft.to.trim() : draft.kind === "slack" ? draft.slackId
+              : draft.kind === "jira" ? draft.jira.site.trim() && draft.jira.token && draft.jira.project.trim() : draft.url.trim())}>{draft.id ? "Save" : "Create"}</button>
             <button type="button" className="btn-ghost" onClick={() => setDraft(null)}>Cancel</button>
           </div>
         </form>
@@ -208,6 +226,7 @@ export function Channels() {
               <p className="small cell-wrap" style={{ margin: "0.3rem 0 0" }}>
                 {c.kind === "email" ? c.config.to?.join(", ")
                   : c.kind === "slack" ? <>#{c.config.channel_name || c.config.channel_id} <span className="muted">· posted by the Slack app, kept up to date, with buttons</span></>
+                  : c.kind === "jira" ? <>{c.config.project_key} · {c.config.issue_type} on <code>{c.config.site}</code> <span className="muted">· one issue per incident, commented, closed on resolve</span></>
                     : <code>{c.config.method ?? "POST"} {c.config.url}</code>}
               </p>
               {results[c.id] && <p className={`small ${results[c.id].startsWith("✓") ? "ok-ink" : "error"}`}>{results[c.id]}</p>}
@@ -245,6 +264,43 @@ function SlackChannelPicker({ id, onPick }: { id: string; onPick: (id: string, n
         </select>
       </Field>
       <ErrorNotice>{error ?? (data?.error ? `Slack: ${data.error}` : null)}</ErrorNotice>
+    </>
+  );
+}
+
+
+/** A Jira project. Cloud: the account's email + an API token (id.atlassian.com → Security →
+ *  API tokens). Data Center: leave the email empty and paste a personal access token. */
+function JiraFields({ value: j, editing, onChange }: {
+  value: Draft["jira"]; editing: boolean; onChange: (j: Draft["jira"]) => void;
+}) {
+  const set = (patch: Partial<Draft["jira"]>) => onChange({ ...j, ...patch });
+  return (
+    <>
+      <Field label="Jira site" hint="Your Jira's address — not a board or issue link.">
+        <input required value={j.site} onChange={(e) => set({ site: e.target.value })} placeholder="https://acme.atlassian.net" />
+      </Field>
+      <div className="jira-auth">
+        <Field label="Account email" hint="Jira Cloud. Leave empty for a Data Center personal access token.">
+          <input type="email" value={j.email} onChange={(e) => set({ email: e.target.value })} placeholder="bot@acme.io" />
+        </Field>
+        <Field label="API token" hint={editing ? `Never shown again — leave ${MASK} to keep the stored one.` : "Never shown again after saving."}>
+          <input required type="password" autoComplete="off" value={j.token}
+            onFocus={() => { if (j.token === MASK) set({ token: "" }); }}
+            onChange={(e) => set({ token: e.target.value })} />
+        </Field>
+      </div>
+      <div className="jira-auth">
+        <Field label="Project key"><input required value={j.project} onChange={(e) => set({ project: e.target.value.toUpperCase() })} placeholder="OPS" /></Field>
+        <Field label="Issue type"><input value={j.issueType} onChange={(e) => set({ issueType: e.target.value })} placeholder="Task" /></Field>
+      </div>
+      <Field label="Labels" hint="Space-separated; “shorthop” is always added.">
+        <input value={j.labels} onChange={(e) => set({ labels: e.target.value })} placeholder="prod on-call" />
+      </Field>
+      <Field label="Close with transition" hint="Empty = the first transition to a “done” status. Name one if your workflow has several.">
+        <input value={j.done} onChange={(e) => set({ done: e.target.value })} placeholder="Done" />
+      </Field>
+      <p className="muted small">Put the channel in the first escalation step. Closing the issue in Jira does not resolve the alerts — Shorthop keeps paging while they fire. Use <strong>Send test</strong> to check the token and project without opening an issue.</p>
     </>
   );
 }

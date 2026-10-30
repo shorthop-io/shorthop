@@ -90,6 +90,8 @@ class ResolveSchema(_In):
 
 class NoteSchema(_In):
     text = fields.Str(required=True, validate=validate.Length(min=1, max=4000))
+    # "suggestion" = written by an automation (an AI triage agent), shown apart from people's notes.
+    kind = fields.Str(load_default="note", validate=validate.OneOf(["note", "suggestion"]))
 
 
 # --- silences ------------------------------------------------------------------------
@@ -118,7 +120,7 @@ class SilenceCreateSchema(_In):
     matchers = fields.List(fields.Dict(), required=True)
     starts_at = fields.DateTime(load_default=None)
     ends_at = fields.DateTime(required=True)
-    comment = fields.Str(required=True, validate=validate.Length(min=1, max=2000))
+    comment = fields.Str(load_default="", validate=validate.Length(max=2000))
     team_id = fields.Str(load_default=None)
 
 

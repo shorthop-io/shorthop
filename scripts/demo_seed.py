@@ -20,7 +20,7 @@ from app import alerts as ops  # noqa: E402
 from app.auth import INTEGRATION_TOKEN_PREFIX, hash_password, new_token  # noqa: E402
 from app.db import SessionLocal  # noqa: E402
 from app.models import (  # noqa: E402
-    Channel, EscalationPolicy, Incident, Inhibition, Integration, LabelRule, Notification, Occurrence, Route,
+    Channel, EscalationPolicy, Incident, Inhibition, Integration, JiraIssue, LabelRule, Notification, Occurrence, Route,
     Schedule,
     ScheduleOverride, Team, TeamMember, User, now,
 )
@@ -60,7 +60,10 @@ slack_ch = Channel(name="ops-alerts (Slack)", kind="slack",
 db.add(slack_ch)
 hook_ch = Channel(name="team chat", kind="webhook", config={"url": "https://hooks.example.com/shorthop"},
                   secret="shs_demo")
-db.add_all([ops_mail, hook_ch])
+jira_ch = Channel(name="ops jira", kind="jira", config={
+    "site": "https://acme.atlassian.net", "email": "shorthop@example.com", "api_token": "demo-token",
+    "project_key": "OPS", "issue_type": "Incident", "labels": ["prod"]})
+db.add_all([ops_mail, hook_ch, jira_ch])
 db.flush()
 policy = EscalationPolicy(name="platform on-call", team_id=team.id, repeat=1, steps=[
     {"delay_minutes": 0, "targets": [{"type": "user", "id": bob.id}, {"type": "channel", "id": hook_ch.id}]},
@@ -193,6 +196,10 @@ db.commit()
 # resolved rows: they are the past, and must not page anyone today.
 crash = db.query(Occurrence).filter(Occurrence.alertname == "KubePodCrashLooping",
                                     Occurrence.resolved_at.is_(None)).first()
+ops.add_note(crash.id, "ai-triage@example.com",
+             "OOMKilled 4 times in 10 min (limit 128Mi, peak 131Mi) since image 3f2a1c rolled out "
+             "at 09:12. Last time this was fixed by raising the memory limit to 256Mi. Next step: "
+             "check the new image's memory use, or roll back.", kind="suggestion")
 
 
 def past(name, sig, fp, start, minutes, how="source", sev="warning", acked=None, cat=None, labels=None):
@@ -239,5 +246,12 @@ for i, (name, platform, tok, status, msg) in enumerate((
                   relay_device_id="00000000-0000-0000-0000-00000000000" + str(i) if status == "registered" else None,
                   relay_signs_out_at=t + dt.timedelta(days=9) if name == "Drawer Android" else None,
                   created_at=t - dt.timedelta(days=3 + i), last_seen_at=t - dt.timedelta(hours=i)))
+# Every open incident has its Jira issue (one with a comment that could not be posted yet).
+for k, inc in enumerate(db.query(Incident).filter(Incident.resolved_at.is_(None)).all()):
+    db.add(JiraIssue(incident_id=inc.id, channel_id=jira_ch.id, issue_key=f"OPS-{120 + k}",
+                     issue_url=f"https://acme.atlassian.net/browse/OPS-{120 + k}",
+                     pending_comments=["boss: looking"] if k == 0 else [],
+                     dirty=k == 0, attempts=2 if k == 0 else 0,
+                     error="Jira answered HTTP 503: Service Unavailable" if k == 0 else None))
 db.commit()
 print("seeded — sign in as admin@example.com /", DEMO_PASSWORD)

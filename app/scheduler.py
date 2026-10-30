@@ -35,7 +35,7 @@ from prometheus_client import Counter, Gauge
 
 from . import alerts as alert_ops
 from . import config as cfg
-from . import delivery, incidents, locks, ratelimit, relay, schedules, selfmon, slack, watch
+from . import delivery, incidents, jira, locks, ratelimit, relay, schedules, selfmon, slack, watch
 from .db import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -100,12 +100,13 @@ def dispatch() -> dict:
         steps = incidents.run_due()
         sent = delivery.deliver_pending()
         redrawn = slack.refresh_dirty()   # Slack messages of incidents that changed
+        commented = jira.refresh_dirty()  # comments queued on incidents' Jira issues
     finally:
         SessionLocal.remove()
     global _last_dispatch_ok
     _last_dispatch_ok = time.monotonic()
     LAST_DISPATCH.set_to_current_time()
-    return {"steps": steps, "sent": sent, "slack": redrawn}
+    return {"steps": steps, "sent": sent, "slack": redrawn, "jira": commented}
 
 
 def dispatch_healthy(now: float | None = None) -> bool:

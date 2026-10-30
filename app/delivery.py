@@ -256,7 +256,7 @@ def template_vars(body: dict) -> dict[str, str]:
     text = "\n".join(x for x in [head, url, inc.get("reassigned") or "", inc.get("history") or "",
                                  alerts_text] if x)
     return {
-        "event": event, "verb": verb, "number": number, "title": title, "severity": sev,
+        "event": event, "verb": verb, "number": number, "incident_id": inc.get("id") or "", "title": title, "severity": sev,
         "status": inc.get("status") or "", "url": url, "history": inc.get("history") or "",
         "summary": first.get("summary", ""), "description": first.get("description", ""),
         "alert_count": str(len(alerts)), "open_count": str(open_n),
@@ -345,6 +345,37 @@ def send_webhook(config: dict, body: dict, secret: str | None) -> None:
                             + (f": {detail}" if detail else ""))
 
 
+def _alert_text(inc: Incident) -> str:
+    """What the alert says about itself: the summary (or description) of the first alert still
+    open — or of the first alert, once all are resolved. One line, whitespace collapsed."""
+    alerts = list(inc.alerts)
+    a = next((o for o in alerts if o.resolved_at is None), alerts[0] if alerts else None)
+    if a is None:
+        return ""
+    ann = a.annotations or {}
+    text = str(ann.get("summary") or ann.get("description") or "")
+    return " ".join(text.split())
+
+
+def push_text(inc: Incident, event: str) -> tuple[str, str]:
+    """The lock-screen title and body: what fired (or resolved) and what the alert says about
+    it, so the page can be read without opening the app. Shared by the direct Expo path and the
+    relay, so the two cannot word a page differently."""
+    verb = {"triggered": "Firing", "escalated": "Still firing", "resolved": "Resolved",
+            "test": "Test"}.get(event, event)
+    title = f"{verb}: #{inc.number} {inc.title}"[:180]
+    lead = _alert_text(inc)
+    if event == "resolved":
+        tail = f"Resolved by {inc.resolved_by}." if inc.resolved_by else "All alerts resolved."
+        parts = [lead, tail]
+    else:
+        open_n = sum(1 for o in inc.alerts if o.resolved_at is None)
+        parts = [lead, f"{inc.severity + ' · ' if inc.severity else ''}{open_n} open alert(s).",
+                 _reassigned_line(inc), _history_line(inc)]
+    body = " ".join(p for p in parts if p)
+    return title, (body[:399] + "…" if len(body) > 400 else body)
+
+
 def send_push(db, device_id: str, inc: Incident, event: str) -> None:
     dev = db.get(Device, device_id)
     if dev is None or dev.revoked or not dev.push_token:
@@ -352,15 +383,11 @@ def send_push(db, device_id: str, inc: Incident, event: str) -> None:
     if relay.configured():
         _send_push_via_relay(dev, inc, event)
         return
-    verb = {"triggered": "Firing", "escalated": "Still firing", "resolved": "Resolved",
-            "test": "Test"}.get(event, event)
-    open_n = sum(1 for o in inc.alerts if o.resolved_at is None)
+    title, body = push_text(inc, event)
     message = {
         "to": dev.push_token,
-        "title": f"{verb}: #{inc.number} {inc.title}"[:180],
-        "body": (f"{inc.severity + ' · ' if inc.severity else ''}{open_n} open alert(s). "
-                 + (_reassigned_line(inc) + " " if inc.reassigned_at else "")
-                 + _history_line(inc))[:400],
+        "title": title,
+        "body": body,
         # The app opens this incident when the notification is tapped, and its
         # Acknowledge action calls the API with the phone's own token.
         "data": {"incident_id": inc.id, "event": event},
@@ -390,8 +417,9 @@ def send_push(db, device_id: str, inc: Incident, event: str) -> None:
 
 
 def _send_push_via_relay(dev: Device, inc: Incident, event: str) -> None:
-    """Page a phone through the push relay. The relay gets the incident id and the event —
-    never the title, labels or history; the app fetches those from this server on open.
+    """Page a phone through the push relay. The relay gets the incident id, the event and —
+    unless the admin turned it off — the lock-screen title and body (push_text). Never labels;
+    the app fetches the full incident from this server on open.
 
     Every failure is a DeliveryError, so the outbox retries it with backoff and the Delivery
     log shows the reason. Changes to `dev` are committed with the notification's outcome."""
@@ -402,7 +430,8 @@ def _send_push_via_relay(dev: Device, inc: Incident, event: str) -> None:
     if dev.relay_status != "registered":
         raise DeliveryError(f"push relay: {dev.relay_message or 'this phone is not registered'}")
     try:
-        r = relay.push(dev.relay_device_id, inc.id, event)
+        r = relay.push(dev.relay_device_id, inc.id, event,
+                       push_text(inc, event) if relay.send_content() else None)
     except relay.RelayError as e:
         raise DeliveryError(f"push relay: {e}") from None
     if r.outcome == "ok":
@@ -444,6 +473,12 @@ def _send(db, n: Notification) -> None:
             slack.deliver(db, n, inc)
         except slack.SlackError as e:
             raise DeliveryError(f"Slack: {e}") from None
+    elif n.kind == "jira":
+        from . import jira
+        try:
+            jira.deliver(db, n, inc)
+        except jira.JiraError as e:
+            raise DeliveryError(f"Jira: {e}") from None
     else:
         raise DeliveryError(f"unknown kind {n.kind}")
 

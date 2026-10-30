@@ -16,7 +16,7 @@ from ..auth import require
 from ..core import enrich, matchers
 from ..db import SessionLocal
 from ..models import (
-    Channel, EscalationPolicy, Incident, Inhibition, Integration, LabelRule, Notification, Route,
+    Channel, EscalationPolicy, Incident, Inhibition, Integration, JiraIssue, LabelRule, Notification, Route,
     Schedule, Team, TeamMember, User,
 )
 from .schemas import OccurrenceSchema
@@ -441,6 +441,8 @@ class ChannelSchema(Schema):
         c = dict(obj.config or {})
         if c.get("headers"):
             c["headers"] = {k: MASK for k in c["headers"]}
+        if c.get("api_token"):
+            c["api_token"] = MASK   # a Jira token is write-only, like header values
         if "url" in c and not g.identity.can("config:write"):
             c["url"] = delivery.redact_url(c["url"])
         return c
@@ -452,13 +454,19 @@ class ChannelCreatedSchema(ChannelSchema):
 
 class ChannelInSchema(_In):
     name = fields.Str(required=True, validate=validate.Length(min=1, max=200))
-    kind = fields.Str(required=True, validate=validate.OneOf(["email", "webhook", "slack"]))
+    kind = fields.Str(required=True, validate=validate.OneOf(["email", "webhook", "slack", "jira"]))
     team_id = fields.Str(load_default=None, allow_none=True)
     config = fields.Dict(required=True)
     enabled = fields.Bool(load_default=True)
 
 
 def _clean_config(kind: str, config: dict, old: dict | None = None) -> dict:
+    if kind == "jira":
+        from .. import jira
+        try:
+            return jira.clean_config(config, old, MASK)
+        except ValueError as e:
+            abort(422, message=str(e))
     if kind == "slack":
         # The Slack app posts here (Settings → Slack). The id is what Slack addresses; the
         # name is for people reading the channel list and the delivery log.
@@ -622,6 +630,14 @@ def test_channel(channel_id):
                 slack.send_test(row, g.identity.name)
             except slack.SlackError as e:
                 raise delivery.DeliveryError(f"Slack: {e}") from None
+        elif row.kind == "jira":
+            from .. import jira
+            try:
+                detail = jira.send_test(row)
+            except jira.JiraError as e:
+                raise delivery.DeliveryError(f"Jira: {e}") from None
+            record(g.identity.name, "channel.test", target=row.name)
+            return {"ok": True, "error": None, "detail": detail}
         elif row.kind == "email":
             for addr in (row.config or {}).get("to", []):
                 delivery.send_email(addr, "[TEST] Shorthop channel " + row.name,
@@ -762,9 +778,21 @@ class IncidentSchema(Schema):
         return len(obj.alerts)
 
 
+class JiraIssueSchema(Schema):
+    issue_key = fields.Str()
+    issue_url = fields.Str()
+    closed_at = fields.DateTime(allow_none=True)
+    pending = fields.Method("_pending")
+    error = fields.Str(allow_none=True)
+
+    def _pending(self, obj):
+        return len(obj.pending_comments or []) + (1 if obj.close_pending else 0)
+
+
 class IncidentDetailSchema(IncidentSchema):
     alerts = fields.List(fields.Nested(OccurrenceSchema))
     notifications = fields.List(fields.Nested(NotificationSchema))
+    jira_issues = fields.List(fields.Nested(JiraIssueSchema))
     route_name = fields.Str(allow_none=True)
     policy_name = fields.Str(allow_none=True)
 
@@ -790,6 +818,8 @@ def _incident_detail(inc: Incident) -> Incident:
         o.silenced_by = alert_ops.silenced_by(o, silences)
     inc.notifications = db.scalars(select(Notification).where(
         Notification.incident_id == inc.id).order_by(Notification.created_at.desc())).all()
+    inc.jira_issues = db.scalars(select(JiraIssue).where(
+        JiraIssue.incident_id == inc.id).order_by(JiraIssue.created_at)).all()
     route = db.get(Route, inc.route_id) if inc.route_id else None
     policy = db.get(EscalationPolicy, inc.escalation_policy_id) if inc.escalation_policy_id else None
     team = db.get(Team, inc.team_id) if inc.team_id else None
@@ -957,6 +987,8 @@ def add_incident_responder(payload, incident_id):
 
 class IncidentNoteSchema(_In):
     text = fields.Str(required=True, validate=validate.Length(min=1, max=4000))
+    # "suggestion" = written by an automation (an AI triage agent), shown apart from people's notes.
+    kind = fields.Str(load_default="note", validate=validate.OneOf(["note", "suggestion"]))
 
 
 @blp.route("/incidents/<incident_id>/notes", methods=["POST"])
@@ -965,8 +997,9 @@ class IncidentNoteSchema(_In):
 @blp.response(200, IncidentDetailSchema)
 def add_incident_note(payload, incident_id):
     """A note on every open alert's timeline (and the incident's Slack threads)."""
-    inc = _act(incidents.add_note, incident_id, g.identity.name, payload["text"])
-    record(g.identity.name, "incident.note", target=incident_id)
+    inc = _act(incidents.add_note, incident_id, g.identity.name, payload["text"],
+               kind=payload["kind"])
+    record(g.identity.name, f"incident.{payload['kind']}", target=incident_id)
     return _incident_detail(inc)
 
 

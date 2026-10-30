@@ -14,7 +14,8 @@ You run Shorthop yourself. Your alerts never leave your servers.
 - Prometheus (or anything that can send a webhook).
 - Optional: the **Shorthop app** on your team's phones. Pages reach it through our push relay;
   the first 3 phones are free, then €1.99 per phone a month. Email, Slack and webhooks are free
-  and need nothing from us.
+  and need nothing from us. *(The app and the push relay open with the app's release in the App
+  Store and Google Play — coming. Until then Shorthop pages by email, Slack and webhooks.)*
 
 ## Install
 
@@ -29,13 +30,14 @@ Then: [first steps](getting-started.md) → [connect Prometheus](connect/prometh
 ```
 Prometheus ──alerts──▶ Shorthop (your servers) ──▶ email · Slack · webhooks
                            │
-                           └── incident id only ──▶ push relay (shorthop.io) ──▶ the Shorthop app
+                           └── page + its title ──▶ push relay (shorthop.io) ──▶ the Shorthop app
                                                                                      │
                        the app fetches the details from YOUR Shorthop ◀──────────────┘
 ```
 
-The relay never sees the content of an alert: the notification says only that something needs
-attention, and the app asks your own Shorthop for the rest.
+The notification says what fired — the incident's title and the alert's summary — and the app
+asks your own Shorthop for the rest. The relay passes that text to the phone and stores none of
+it; to keep alert text on your server entirely, switch it off in Settings → Push relay.
 
 ## More
 
@@ -44,5 +46,7 @@ attention, and the app asks your own Shorthop for the rest.
 - [Security](security.md) — the two listeners, tokens and what to expose.
 - [Shorthop Watch](watch.md) — being paged when Shorthop itself goes quiet.
 - [Claude and MCP](mcp.md) — let an assistant read and act on your alerts.
+- [Jira](connect/jira.md) — one issue per incident, commented as it changes, closed when it resolves.
+- [AI triage](connect/ai-triage.md) — an AI agent of your own summarises each new incident.
 
 Licence: the server is AGPL-3.0, the app Apache-2.0.

@@ -34,6 +34,7 @@ SPECS = {
     "smtp_starttls": ("SMTP_STARTTLS", lambda: cfg.SMTP_STARTTLS),
     "relay_url": ("RELAY_URL", lambda: cfg.RELAY_URL),
     "relay_key": ("RELAY_KEY", lambda: cfg.RELAY_KEY),
+    "relay_send_content": ("RELAY_SEND_CONTENT", lambda: cfg.RELAY_SEND_CONTENT),
     "slack_bot_token": ("SLACK_BOT_TOKEN", lambda: cfg.SLACK_BOT_TOKEN),
     "slack_app_token": ("SLACK_APP_TOKEN", lambda: cfg.SLACK_APP_TOKEN),
     "incident_levels": ("INCIDENT_LEVELS", lambda: _env_levels()),

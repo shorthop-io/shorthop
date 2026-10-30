@@ -105,3 +105,37 @@ def test_oncall_tools(client):
     assert rows[0]["user"]["email"] == "bob3@x.io" and rows[0]["source"] == "override"
     _, sched = _tool(client, tok, "get_schedule", schedule_id=s["id"], days=3)
     assert sched["shifts"][0]["user"]["email"] == "bob3@x.io"
+
+
+def test_incident_note_as_suggestion_is_marked_apart(client):
+    tok = make_token(make_user(email="ai@x.io"), ["alerts:read", "alerts:write"])
+    admin = make_token(make_user(email="a3@x.io", role="admin"), ["admin"])
+    client.post("/api/v1/routes", headers=bearer(admin), json={"name": "all"})
+    _fire(client)
+    _, rows = _tool(client, tok, "list_incidents")
+    iid = rows[0]["id"]
+    result, _ = _tool(client, tok, "add_incident_note", incident_id=iid,
+                      text="Disk full on node-3; rotate logs", suggestion=True)
+    assert not result["isError"]
+    result, _ = _tool(client, tok, "add_incident_note", incident_id=iid, text="looking")
+    assert not result["isError"]
+    _, alerts = _tool(client, tok, "list_alerts")
+    events = client.get(f"/api/v1/alerts/{alerts[0]['id']}", headers=bearer(tok)).json["events"]
+    kinds = {e["detail"]: e["kind"] for e in events if e["kind"] in ("note", "suggestion")}
+    assert kinds == {"Disk full on node-3; rotate logs": "suggestion", "looking": "note"}
+    # The string "false" must not be read as true.
+    result, _ = _tool(client, tok, "add_incident_note", incident_id=iid, text="x", suggestion="false")
+    assert result["isError"]
+    assert "mcp.add_incident_note" in [a.action for a in SessionLocal.query(AuditEntry).all()]
+
+
+def test_rest_note_kind_is_validated(client):
+    tok = make_token(make_user(email="r2@x.io"), ["alerts:read", "alerts:write"])
+    _fire(client)
+    aid = client.get("/api/v1/alerts", headers=bearer(tok)).json[0]["id"]
+    r = client.post(f"/api/v1/alerts/{aid}/notes", headers=bearer(tok),
+                    json={"text": "guess", "kind": "suggestion"})
+    assert r.status_code == 200 and r.json["events"][-1]["kind"] == "suggestion"
+    r = client.post(f"/api/v1/alerts/{aid}/notes", headers=bearer(tok),
+                    json={"text": "x", "kind": "fix"})
+    assert r.status_code == 422

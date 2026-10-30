@@ -448,6 +448,9 @@ class Channel(Base):
     kind=webhook: config = {"url": "https://…"}; `secret` signs every body (HMAC-SHA256).
     kind=slack:   config = {"channel_id": "C…", "channel_name": "ops-alerts"} — posted by the
                   Slack app (Settings → Slack), one message per incident, kept up to date.
+    kind=jira:    config = {"site", "email"?, "api_token" (write-only), "project_key",
+                  "issue_type", "labels", "done_transition"?} — one issue per incident,
+                  commented as it changes and closed when it resolves (app/jira.py).
     """
 
     __tablename__ = "channels"
@@ -542,6 +545,40 @@ class SlackMessage(Base):
     dirty: Mapped[bool] = mapped_column(Boolean, default=False)
     dirty_at: Mapped[dt.datetime] = mapped_column(TS, default=now)
     pending_replies: Mapped[list] = mapped_column(JSONType, default=list)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(TS, default=now)
+    updated_at: Mapped[dt.datetime | None] = mapped_column(TS, nullable=True)
+
+
+class JiraIssue(Base):
+    """The Jira issue that stands for an incident, opened by one jira channel. Without it a
+    channel could open an issue but never comment on it or close it again.
+
+    `pending_comments` + `dirty` work like SlackMessage.pending_replies: queued in the
+    transaction that changed the incident, posted by the dispatch loop (SKIP LOCKED).
+    `close_pending` = the incident resolved; transition the issue once the comments are in."""
+
+    __tablename__ = "jira_issues"
+    __table_args__ = (
+        UniqueConstraint("incident_id", "channel_id", name="uq_jira_issue_channel"),
+        Index("ix_jira_issue_dirty", "dirty", "dirty_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    incident_id: Mapped[str] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), index=True
+    )
+    channel_id: Mapped[str | None] = mapped_column(
+        ForeignKey("channels.id", ondelete="SET NULL"), nullable=True
+    )
+    issue_key: Mapped[str] = mapped_column(String(64))
+    issue_url: Mapped[str] = mapped_column(String(400))
+    dirty: Mapped[bool] = mapped_column(Boolean, default=False)
+    dirty_at: Mapped[dt.datetime] = mapped_column(TS, default=now)
+    pending_comments: Mapped[list] = mapped_column(JSONType, default=list)
+    close_pending: Mapped[bool] = mapped_column(Boolean, default=False)
+    closed_at: Mapped[dt.datetime | None] = mapped_column(TS, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(TS, default=now)

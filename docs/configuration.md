@@ -115,6 +115,7 @@ values file or a repository.
 | `EXPO_ACCESS_TOKEN` 🔒 | — | Optional: Expo's "enhanced push security" access token. Unset works with Expo's defaults. |
 | `RELAY_URL` | — | Push relay (app/relay.py). Both set = phones register with the relay and pages go through it (how a self-hosted install reaches the published app). Unset = straight to Expo with this install's own credentials. Overridable on the admin Settings page. |
 | `RELAY_KEY` 🔒 | — | Your installation key (shr_…) from https://account.shorthop.io. |
+| `RELAY_SEND_CONTENT` | `true` | Whether a page through the relay carries the incident's title and summary, so the lock screen says WHAT fired or resolved. Off = the relay only ever gets an incident id and the phone shows a generic "an incident needs your attention". Overridable on the admin Settings page. |
 | `RELAY_SYNC_INTERVAL_SECONDS` | `3600` | How often the leader tells the relay which phones checked in, and reads back its warnings. |
 
 ## Slack app

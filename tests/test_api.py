@@ -122,7 +122,7 @@ def test_silence_preview_create_mark_and_expire(client):
     assert client.get("/api/v1/alerts", headers=bearer(tok)).json[0]["silenced_by"] == []
 
 
-def test_silence_needs_comment_and_sane_window(client):
+def test_silence_needs_a_sane_window(client):
     tok = make_token(make_user(), ["alerts:read", "alerts:write"])
     m = [{"name": "alertname", "value": "X"}]
     r = client.post("/api/v1/silences", headers=bearer(tok), json={
@@ -210,3 +210,37 @@ def test_openapi_offers_bearer_authorize(client):
         **spec["components"]["securitySchemes"]["bearerAuth"], "type": "http", "scheme": "bearer"}
     assert spec["security"] == [{"bearerAuth": []}]
     assert client.get("/docs").status_code == 200
+
+
+def test_silence_needs_no_comment(client):
+    """3 am: the person who knows it can wait presses Silence and goes back to sleep."""
+    tok = make_token(make_user(), ["alerts:read", "alerts:write"])
+    r = client.post("/api/v1/silences", headers=bearer(tok), json={
+        "matchers": [{"name": "alertname", "value": "X"}], "ends_at": _iso(now() + dt.timedelta(hours=1))})
+    assert r.status_code == 201 and r.json["comment"] == "" and r.json["created_by"]
+
+
+def test_one_tap_silence_on_an_open_alert(client):
+    tok = make_token(make_user(), ["alerts:read", "alerts:write"])
+    _fire(client)
+    aid = _open_id(client, tok)
+    r = client.post(f"/api/v1/alerts/{aid}/silence", headers=bearer(tok), json={"minutes": 60})
+    assert r.status_code == 201 and r.json["state"] == "active"
+    assert {m["name"] for m in r.json["matchers"]} >= {"alertname"}
+    alert = client.get(f"/api/v1/alerts/{aid}", headers=bearer(tok)).json
+    assert alert["silenced_by"] == [r.json["id"]]
+    assert alert["events"][-1]["kind"] == "silenced" and alert["events"][-1]["detail"] == "for 1 h"
+
+
+def test_a_resolved_flapping_alert_can_be_silenced_and_its_next_flap_is_muted(client):
+    tok = make_token(make_user(), ["alerts:read", "alerts:write"])
+    itok = _fire(client)
+    aid = _open_id(client, tok)
+    assert client.post(f"/api/v1/alerts/{aid}/resolve", headers=bearer(tok), json={}).status_code == 200
+    r = client.post(f"/api/v1/alerts/{aid}/silence", headers=bearer(tok), json={"minutes": 240})
+    assert r.status_code == 201
+    client.post(PROM, json=[_prom_alert()], headers=bearer(itok))   # it flaps back
+    flapped = client.get("/api/v1/alerts", headers=bearer(tok)).json[0]
+    assert flapped["id"] != aid and flapped["silenced_by"] == [r.json["id"]]
+    too_long = client.post(f"/api/v1/alerts/{aid}/silence", headers=bearer(tok), json={"minutes": 10 ** 7})
+    assert too_long.status_code == 409

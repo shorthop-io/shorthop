@@ -8,8 +8,8 @@ You are signed in as the first admin. To get your first page:
 2. **People → Teams** — group people; routes and schedules belong to teams.
 3. **Schedules** — who is on call when: rotations, layers and overrides. Anyone can take a
    shift or swap one from the web or the app.
-4. **Channels** — where pages can go besides people: email, Slack, any webhook (Teams,
-   Discord, Telegram, Jira … through their webhook URL).
+4. **Channels** — where pages can go besides people: email, Slack, [Jira](connect/jira.md)
+   (one issue per incident), any webhook (Teams, Discord, Telegram … through their webhook URL).
 5. **Escalation** — a policy is a list of steps: page the person on call now, the whole team
    after 10 minutes, a channel after 20. Steps repeat until someone acknowledges.
 6. **Routing** — match alerts by their labels (`severity=critical`, `namespace=payments`) to a

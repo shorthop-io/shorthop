@@ -275,12 +275,27 @@ def resolve(occurrence_id: str, actor: str, category: str | None = None,
     return occ
 
 
-def add_note(occurrence_id: str, actor: str, text: str) -> Occurrence:
+# A timeline note is either a person's ("note") or an automation's ("suggestion" — e.g. an AI
+# triage agent's summary). ⚠️ The two must never look alike: a suggestion is a guess written
+# by something that was not there, and a responder reading it as a colleague's finding is the
+# failure this exists to prevent. Neither feeds history — "what fixed it" is the resolution
+# note, written only by resolving.
+NOTE_KINDS = ("note", "suggestion")
+
+
+def check_note(text: str, kind: str) -> str:
     text = (text or "").strip()
     if not text:
         raise AlertError("note is empty")
+    if kind not in NOTE_KINDS:
+        raise AlertError(f"kind must be one of {', '.join(NOTE_KINDS)}")
+    return text
+
+
+def add_note(occurrence_id: str, actor: str, text: str, kind: str = "note") -> Occurrence:
+    text = check_note(text, kind)
     occ = get(occurrence_id)
-    _event(occ, "note", actor, text[:4000])
+    _event(occ, kind, actor, text[:4000])
     SessionLocal.commit()
     return occ
 
@@ -353,9 +368,10 @@ def create_silence(raw_matchers, starts_at: dt.datetime | None, ends_at: dt.date
         clean = matchers.validate(raw_matchers)
     except matchers.MatcherError as e:
         raise AlertError(str(e)) from None
+    # A reason is welcome, never required: at 3 am the person who knows it can wait wants to
+    # press Silence and go back to sleep. Who made it and when are always recorded. (MCP still
+    # requires one — an assistant must say why it muted something.)
     comment = (comment or "").strip()
-    if not comment:
-        raise AlertError("a comment is required — the next person needs to know why")
     t = now()
     starts = aware(starts_at) or t
     ends = aware(ends_at)
@@ -369,6 +385,28 @@ def create_silence(raw_matchers, starts_at: dt.datetime | None, ends_at: dt.date
     s = Silence(matchers=clean, starts_at=starts, ends_at=ends, comment=comment[:2000],
                 created_by=actor, team_id=team_id)
     SessionLocal.add(s)
+    SessionLocal.commit()
+    return s
+
+
+def silence_alert(occurrence_id: str, actor: str, minutes: int,
+                  comment: str | None = None) -> Silence:
+    """One tap: silence THIS alert — its signature labels, i.e. the same fault on any pod —
+    for `minutes`. Works on a RESOLVED alert too: a flapping alert is resolved most of the
+    time, and silencing it then is what stops the next flap paging anyone."""
+    occ = get(occurrence_id)
+    labels = {k: v for k, v in (occ.signature_labels or {}).items() if v}
+    if not labels:
+        raise AlertError("this alert has no labels to silence on — make a silence on the Silences page")
+    if not 1 <= int(minutes) <= cfg.MAX_SILENCE_DAYS * 24 * 60:
+        raise AlertError(f"silence for 1 minute to {cfg.MAX_SILENCE_DAYS} days")
+    m = [{"name": k, "value": v, "isRegex": False, "isEqual": True}
+         for k, v in sorted(labels.items(), key=lambda kv: (kv[0] != "alertname", kv[0]))]
+    t = now()
+    s = create_silence(m, t, t + dt.timedelta(minutes=int(minutes)), comment or "", actor,
+                       team_id=occ.team_id)
+    span = f"{int(minutes) // 60} h" if int(minutes) % 60 == 0 else f"{int(minutes)} min"
+    _event(occ, "silenced", actor, f"for {span}" + (f": {comment.strip()}" if (comment or "").strip() else ""))
     SessionLocal.commit()
     return s
 

@@ -3,12 +3,22 @@
 The Shorthop app pages people on their phones — through Do Not Disturb where the phone allows,
 with Acknowledge on the lock screen.
 
+> **Coming.** The app and the push relay open with the app's release in the App Store and Google
+> Play; sign-up at account.shorthop.io opens then too. Until then Shorthop pages by email, Slack
+> and webhooks, which need nothing from us. This page describes how it will work.
+
 ## The push relay
 
 A push notification to an app can only be sent with that app's own keys, so pages reach the
-Shorthop app through **our push relay**. Your Shorthop sends it an opaque incident id and a
-phone; the relay never receives the content of an alert. The app then fetches the details from
-**your** Shorthop.
+Shorthop app through **our push relay**. Your Shorthop sends it the phone, the incident id and
+the lock-screen text — the incident title and the alert's summary, e.g. *Firing: #12 Disk
+almost full — /var at 94%* — so the page says what happened before you open the app. The relay
+forwards that text to the phone and never stores or logs it; labels and history are never sent.
+The app fetches the full incident from **your** Shorthop.
+
+Rather keep alert text off the relay entirely? Untick **Settings → Push relay → Show what fired
+on the lock screen** (or `RELAY_SEND_CONTENT=false`): the relay then gets only the incident id
+and the phone shows a generic "An incident needs your attention".
 
 1. Create an installation at **[account.shorthop.io](https://account.shorthop.io/signup)** —
    free; you get an installation key (`shr_…`), shown once.

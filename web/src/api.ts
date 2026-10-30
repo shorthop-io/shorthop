@@ -237,7 +237,10 @@ export const api = {
     request<AlertDetail>("POST", `/api/v1/alerts/${encodeURIComponent(id)}/notes`, { text }),
 
   listSilences: (state = "current") => request<Silence[]>("GET", `/api/v1/silences${q({ state })}`),
-  createSilence: (body: { matchers: Matcher[]; ends_at: string; comment: string; starts_at?: string }) =>
+  /** One click: silence this alert (its signature labels) — also on a resolved, flapping one. */
+  silenceAlert: (id: string, minutes: number) =>
+    request<Silence>("POST", `/api/v1/alerts/${encodeURIComponent(id)}/silence`, { minutes }),
+  createSilence: (body: { matchers: Matcher[]; ends_at: string; comment?: string; starts_at?: string }) =>
     request<Silence>("POST", "/api/v1/silences", body),
   previewSilence: (matchers: Matcher[]) =>
     request<Alert[]>("POST", "/api/v1/silences/preview", { matchers }),
@@ -322,7 +325,7 @@ export interface Policy { id: string; name: string; team_id: string | null; step
 export type PolicyIn = Omit<Policy, "id" | "created_at">;
 
 export interface Channel {
-  id: string; name: string; kind: "email" | "webhook" | "slack"; team_id: string | null;
+  id: string; name: string; kind: "email" | "webhook" | "slack" | "jira"; team_id: string | null;
   config: ChannelConfig; has_secret: boolean; enabled: boolean; created_at: string;
   secret?: string | null;
 }
@@ -338,6 +341,15 @@ export interface ChannelConfig {
   headers?: Record<string, string>;
   body_template?: string;
   events?: WebhookEvent[];
+  /** Jira: one issue per incident, commented as it changes, closed when it resolves. */
+  site?: string;
+  email?: string;
+  /** Comes back masked ("••••••"); send the mask back to keep the stored token. */
+  api_token?: string;
+  project_key?: string;
+  issue_type?: string;
+  labels?: string[];
+  done_transition?: string;
 }
 export type ChannelIn = Pick<Channel, "name" | "kind" | "team_id" | "config" | "enabled">;
 
@@ -366,8 +378,10 @@ export interface Incident {
   level: string | null; level_manual: boolean; level_set_by: string | null; level_set_at: string | null;
 }
 export interface Level { name: string; severity: string; description: string }
+export interface JiraIssueLink { issue_key: string; issue_url: string; closed_at: string | null; pending: number; error: string | null }
 export interface IncidentDetail extends Incident {
   alerts: Alert[]; notifications: Notification[]; route_name: string | null; policy_name: string | null;
+  jira_issues?: JiraIssueLink[];
 }
 export interface ReassignIn { team_id: string; escalation_policy_id?: string | null; note?: string; page?: boolean }
 
@@ -418,7 +432,7 @@ export const paging = {
   createChannel: (body: ChannelIn) => request<Channel>("POST", "/api/v1/channels", body),
   updateChannel: (id: string, body: ChannelIn) => request<Channel>("PUT", `/api/v1/channels/${encodeURIComponent(id)}`, body),
   deleteChannel: (id: string) => request<void>("DELETE", `/api/v1/channels/${encodeURIComponent(id)}`),
-  testChannel: (id: string) => request<{ ok: boolean; error: string | null }>("POST", `/api/v1/channels/${encodeURIComponent(id)}/test`),
+  testChannel: (id: string) => request<{ ok: boolean; error: string | null; detail?: string }>("POST", `/api/v1/channels/${encodeURIComponent(id)}/test`),
   rotateChannelSecret: (id: string) => request<Channel>("POST", `/api/v1/channels/${encodeURIComponent(id)}/rotate-secret`),
 
   listInhibitions: () => request<Inhibition[]>("GET", "/api/v1/inhibitions"),
@@ -542,7 +556,7 @@ export interface Related {
 /* --- admin settings ------------------------------------------------------------------- */
 
 export type SettingKey = "prometheus_allowed_hosts" | "webhook_private_hosts" | "smtp_host" | "smtp_port" | "smtp_user"
-  | "smtp_password" | "smtp_from" | "smtp_starttls" | "relay_url" | "relay_key"
+  | "smtp_password" | "smtp_from" | "smtp_starttls" | "relay_url" | "relay_key" | "relay_send_content"
   | "slack_bot_token" | "slack_app_token" | "incident_levels";
 export interface SettingItem {
   key: SettingKey; env: string; source: "settings" | "environment";

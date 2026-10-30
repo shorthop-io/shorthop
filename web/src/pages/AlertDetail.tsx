@@ -14,9 +14,12 @@ const HOW: Record<string, string> = {
   manual: "resolved by hand",
 };
 
-const EVENT_ICON: Record<string, "alert" | "check" | "note" | "user" | "clock"> = {
+const EVENT_ICON: Record<string, "alert" | "check" | "note" | "user" | "clock" | "sparkle"> = {
   fired: "alert", acknowledged: "user", resolved: "check", note: "note", resolution_noted: "note",
+  suggestion: "sparkle",
 };
+// An automation's note (an AI triage summary) — never to be read as a colleague's finding.
+const EVENT_LABEL: Record<string, string> = { suggestion: "suggestion · unverified" };
 
 export function AlertDetail({ id }: { id: string }) {
   const navigate = useNavigate();
@@ -97,9 +100,21 @@ export function AlertDetail({ id }: { id: string }) {
                     </button>
                   )}
                   {a.status === "acknowledged" && <span className="muted small">Acknowledged by {a.acked_by} {relative(a.acked_at, now)}</span>}
-                  <button className="btn-ghost" onClick={() => navigate(`/silences/new?alert=${encodeURIComponent(a.id)}`)}>
-                    <Icon name="bellOff" size={15} /> Silence…
+                  <button className="btn-ghost" disabled={busy} onClick={() => act(async () => { await api.silenceAlert(a.id, 60); return api.getAlert(a.id); })}>
+                    <Icon name="bellOff" size={15} /> Silence 1 h
                   </button>
+                  <button className="btn-ghost" onClick={() => navigate(`/silences/new?alert=${encodeURIComponent(a.id)}`)}>
+                    Silence…
+                  </button>
+                </div>
+              )}
+              {resolved && (
+                <div className="detail-actions">
+                  <span className="muted small">Flapping? Silence it now so the next flap does not page:</span>
+                  <button className="btn-ghost btn-sm" disabled={busy} onClick={() => act(async () => { await api.silenceAlert(a.id, 240); return api.getAlert(a.id); })}>
+                    <Icon name="bellOff" size={14} /> Silence 4 h
+                  </button>
+                  <button className="btn-ghost btn-sm" onClick={() => navigate(`/silences/new?alert=${encodeURIComponent(a.id)}`)}>Silence…</button>
                 </div>
               )}
               {resolved && fixRecorded && (
@@ -145,8 +160,8 @@ export function AlertDetail({ id }: { id: string }) {
                 <li key={i}>
                   <span className={`tl-dot tl-${ev.kind}`}><Icon name={EVENT_ICON[ev.kind] ?? "clock"} size={13} /></span>
                   <div>
-                    <div><strong>{ev.kind.replace("_", " ")}</strong>{ev.actor && <span className="muted"> · {ev.actor}</span>}</div>
-                    {ev.detail && <div className="tl-detail">{ev.detail}</div>}
+                    <div><strong>{EVENT_LABEL[ev.kind] ?? ev.kind.replace("_", " ")}</strong>{ev.actor && <span className="muted"> · {ev.actor}</span>}</div>
+                    {ev.detail && <div className={`tl-detail${ev.kind === "suggestion" ? " tl-suggestion-text" : ""}`}>{ev.detail}</div>}
                     <div className="muted small" title={ev.at}>{wall(ev.at)} · {relative(ev.at, now)}</div>
                   </div>
                 </li>

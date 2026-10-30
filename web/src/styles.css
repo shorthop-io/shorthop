@@ -364,6 +364,8 @@ h3.sub { color: var(--navy); font-size: 0.95rem; margin: 0 0 0.6rem; }
 .tl-acknowledged { background: var(--info-bg); color: var(--info-ink); }
 .tl-resolved { background: var(--ok-bg); color: var(--ok-ink); }
 .tl-detail { overflow-wrap: anywhere; white-space: pre-wrap; }
+.tl-suggestion { background: var(--warn-bg); color: var(--warn-ink); }
+.tl-suggestion-text { margin-top: 0.2rem; padding-left: 0.6rem; border-left: 2px dashed var(--warn-ink); }
 .note-form { display: flex; gap: 0.5rem; }
 .note-form input { flex: 1; }
 
@@ -443,6 +445,7 @@ h3.sub { color: var(--navy); font-size: 0.95rem; margin: 0 0 0.6rem; }
 .member-list li { display: flex; align-items: center; gap: 0.5rem; }
 .member-list li > span:first-child { flex: 1; }
 .method-url { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: 0.5rem; align-items: end; }
+.jira-auth { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 0.5rem; align-items: start; }
 .header-row { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr) auto; gap: 0.4rem; align-items: center; }
 .add-header { align-self: flex-start; }
 .check-row { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; }
@@ -467,6 +470,7 @@ h3.sub { color: var(--navy); font-size: 0.95rem; margin: 0 0 0.6rem; }
 .incident-alerts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.7rem; }
 .incident-alerts li { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; }
 .incident-alerts .alert-name { text-decoration: none; }
+.incident-alerts .alert-description { white-space: pre-line; overflow-wrap: anywhere; }
 .delivery-error { color: var(--danger); overflow-wrap: anywhere; margin-top: 0.2rem; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; }
 .matcher-editor { display: flex; flex-direction: column; gap: 0.4rem; }

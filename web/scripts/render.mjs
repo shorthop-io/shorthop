@@ -32,6 +32,7 @@ const alerts = await (await fetch(`${BASE}/api/v1/alerts`, { headers: { cookie }
 const incs = await (await fetch(`${BASE}/api/v1/incidents`, { headers: { cookie } })).json();
 const scheds = await (await fetch(`${BASE}/api/v1/schedules`, { headers: { cookie } })).json();
 const crash = alerts.find((a) => a.alertname === "KubePodCrashLooping");
+const resolvedOne = (await (await fetch(`${BASE}/api/v1/alerts?status=resolved`, { headers: { cookie } })).json())[0];
 const PAGES = [
   ["incidents", "/incidents"],
   ["incident-detail", `/incidents/${incs[0].id}`],
@@ -63,12 +64,15 @@ const PAGES = [
   ["channels", "/channels"],
   // Behind clicks: the webhook form with the Jira preset (method, headers, template, events).
   ["channels-webhook", "/channels", `(() => { const b = (t) => [...document.querySelectorAll("button")].find((x) => x.textContent.trim().includes(t)); b("New channel")?.click(); setTimeout(() => { b("Webhook")?.click(); setTimeout(() => { const sel = [...document.querySelectorAll("select")].find((x) => [...x.options].some((o) => o.value === "jira")); const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set; set.call(sel, "jira"); sel.dispatchEvent(new Event("change", { bubbles: true })); const n = document.querySelector("input[placeholder='ops mailbox']"); const iset = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; iset.call(n, "jira ops"); n.dispatchEvent(new Event("input", { bubbles: true })); }, 150); }, 150); })()`],
+  ["channels-ai-triage", "/channels", `(() => { const b = (t) => [...document.querySelectorAll("button")].find((x) => x.textContent.trim().includes(t)); b("New channel")?.click(); setTimeout(() => { b("Webhook")?.click(); setTimeout(() => { const sel = [...document.querySelectorAll("select")].find((x) => [...x.options].some((o) => o.value === "ai-triage")); const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set; set.call(sel, "ai-triage"); sel.dispatchEvent(new Event("change", { bubbles: true })); const n = document.querySelector("input[placeholder='ops mailbox']"); const iset = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; iset.call(n, "ai triage"); n.dispatchEvent(new Event("input", { bubbles: true })); }, 150); }, 150); })()`],
+  ["channels-jira", "/channels", `(() => { const b = (t) => [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === t); b("New channel")?.click(); setTimeout(() => b("Jira")?.click(), 150); })()`],
   ["inhibitions", "/inhibitions"],
   ["deliveries", "/deliveries"],
   ["insight", "/insight"],
   ["alerts", "/alerts"],
   ["alerts-resolved", "/alerts?status=resolved"],
   ["alert-detail", `/alerts/${crash.id}`],
+  ["alert-detail-resolved", `/alerts/${resolvedOne.id}`],
   ["alert-detail-ruled", `/alerts/${alerts.find((a) => a.alertname === "AisFeedStale").id}`],
   ["silences", "/silences"],
   ["silence-new", `/silences/new?alert=${crash.id}`],

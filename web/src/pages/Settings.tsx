@@ -49,6 +49,7 @@ export function Settings({ search }: { search: URLSearchParams }) {
   const [starttls, setStarttls] = useState(true);
   const [relayUrl, setRelayUrl] = useState("");
   const [relayKey, setRelayKey] = useState("");
+  const [relayContent, setRelayContent] = useState(true);
   const [testTo, setTestTo] = useState("");
   const [testResult, setTestResult] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,6 +67,7 @@ export function Settings({ search }: { search: URLSearchParams }) {
     setPassword("");
     setRelayUrl(String(m.relay_url.value ?? ""));
     setRelayKey("");
+    setRelayContent(m.relay_send_content?.value !== false);
   };
 
   useEffect(() => {
@@ -135,7 +137,7 @@ export function Settings({ search }: { search: URLSearchParams }) {
   };
 
   const saveRelay = () => {
-    const body = changedOnly({ relay_url: relayUrl.trim().replace(/\/+$/, "") || null });
+    const body = changedOnly({ relay_url: relayUrl.trim().replace(/\/+$/, "") || null, relay_send_content: relayContent });
     if (relayKey.trim()) body.relay_key = relayKey.trim(); // omitted = keep the stored one
     return put(body, "Push relay");
   };
@@ -226,7 +228,7 @@ export function Settings({ search }: { search: URLSearchParams }) {
         <>
           <form className="card pad form-stack narrow settings-card" onSubmit={(e) => { e.preventDefault(); saveRelay(); }}>
             <h3><Icon name="phone" size={16} /> Push relay</h3>
-            <p className="muted small">Pages reach the Shorthop app through the relay at shorthop.io. It receives each phone's push token and name, and for each page only an incident id — never alert content. Leave both empty to push straight to Expo with this install's own credentials.</p>
+            <p className="muted small">Pages reach the Shorthop app through the relay at shorthop.io. It receives each phone's push token and name, and for each page the incident id plus — unless you switch it off below — the lock-screen text: the incident title and the alert's summary. The relay passes that text to the phone and never stores or logs it. Leave both empty to push straight to Expo with this install's own credentials.</p>
             {relayStatus?.configured && <RelayAccount s={relayStatus} />}
             <Field label="Relay URL" hint="https:// and the host only, e.g. https://relay.shorthop.io">
               <input value={relayUrl} onChange={(e) => setRelayUrl(e.target.value)} placeholder="https://relay.shorthop.io" />
@@ -238,7 +240,10 @@ export function Settings({ search }: { search: URLSearchParams }) {
             {items.relay_key.source === "settings" && (
               <span className="field-hint"><button type="button" className="link-btn" onClick={() => put({ relay_key: null }, "Installation key")}>Remove the stored key</button> (use <code>RELAY_KEY</code> instead)</span>
             )}
-            <p className="muted small">Saving signs every phone in at the relay again. The first 3 phones are free; past that the relay refuses new phones until a payment method is added — phones already signed in keep receiving pages.</p>
+            <label className="check"><input type="checkbox" checked={relayContent} onChange={(e) => setRelayContent(e.target.checked)} /> Show what fired on the lock screen</label>
+            <span className="field-hint">On: "Firing: #12 Disk almost full — /var at 94%". Off: the relay gets only the incident id and the phone shows "An incident needs your attention" until the app is opened.</span>
+            {items.relay_send_content && <Source item={items.relay_send_content} now={now} onReset={() => put({ relay_send_content: null }, "Lock-screen text")} />}
+            <p className="muted small">Saving a new URL or key signs every phone in at the relay again. The first 3 phones are free; past that the relay refuses new phones until a payment method is added — phones already signed in keep receiving pages.</p>
             <div className="detail-actions"><button className="btn-primary" disabled={busy}>Save</button></div>
           </form>
 

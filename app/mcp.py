@@ -159,6 +159,9 @@ def _validate(t: Tool, args: Any) -> dict:
         v, typ = args[key], spec["type"]
         if typ == "integer" and (not isinstance(v, int) or isinstance(v, bool)):
             raise ToolError(f"'{key}' must be an integer")
+        if typ == "boolean" and not isinstance(v, bool):
+            # Never coerce: the string "false" is truthy, and would mark a note as a suggestion.
+            raise ToolError(f"'{key}' must be true or false")
         if typ == "array" and not isinstance(v, list):
             raise ToolError(f"'{key}' must be an array")
         if typ == "object" and not isinstance(v, dict):
@@ -429,12 +432,37 @@ def _resolve(args, ident):
                          category=args["category"], note=args["note"]))
 
 
+_SUGGESTION = {"type": "boolean", "default": False,
+               "description": "True when this is an automated or AI-written analysis rather "
+                              "than something a person found — it is shown as an unverified "
+                              "suggestion, apart from people's notes"}
+
+
 @tool("add_note", "Add a note to an alert's timeline",
       "Findings, links, what was tried.", "alerts:write",
-      {"alert_id": _str("Alert (occurrence) id"), "text": _str("The note")},
+      {"alert_id": _str("Alert (occurrence) id"), "text": _str("The note"),
+       "suggestion": _SUGGESTION},
       ("alert_id", "text"))
 def _note(args, ident):
-    return _detail(_call(alert_ops.add_note, args["alert_id"], ident.name, args["text"]))
+    kind = "suggestion" if args.get("suggestion") else "note"
+    return _detail(_call(alert_ops.add_note, args["alert_id"], ident.name, args["text"],
+                         kind=kind))
+
+
+@tool("add_incident_note", "Add a note to an incident",
+      "Goes on the timeline of every open alert in the incident and into its Slack thread. "
+      "An AI triage summary (what is wrong, likely cause, how to fix it) belongs here with "
+      "suggestion=true.", "alerts:write",
+      {"incident_id": _str("Incident id"), "text": _str("The note"),
+       "suggestion": _SUGGESTION},
+      ("incident_id", "text"))
+def _incident_note(args, ident):
+    from . import incidents
+    from .api.paging import IncidentDetailSchema, _incident_detail
+
+    kind = "suggestion" if args.get("suggestion") else "note"
+    return IncidentDetailSchema().dump(_incident_detail(_call(
+        incidents.add_note, args["incident_id"], ident.name, args["text"], kind=kind)))
 
 
 @tool("create_silence", "Silence alerts for a while",

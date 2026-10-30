@@ -91,8 +91,15 @@ def _admin():
     return u, make_token(u, ["admin"])
 
 
+class _Alert:
+    def __init__(self, summary="", description="", resolved=False):
+        self.annotations = {k: v for k, v in (("summary", summary), ("description", description)) if v}
+        self.resolved_at = "2026-10-30T10:00:00" if resolved else None
+
+
 class _Inc:
     id, number, title, severity, alerts, reassigned_at = "inc-123", 7, "DB primary down", "critical", [], None
+    resolved_by = None
 
 
 # --- registration -------------------------------------------------------------------------
@@ -127,14 +134,50 @@ def test_unpairing_frees_the_seat(client, fake):
 
 # --- delivery -----------------------------------------------------------------------------
 
-def test_page_goes_through_the_relay_with_no_alert_content(client, fake):
+def test_page_through_the_relay_says_what_fired(client, fake):
     _, tok = _admin()
     _, reg = _phone(client, tok)
     delivery.send_push(SessionLocal, reg.json["id"], _Inc(), "triggered")
     method, path, body = fake.calls[-1]
     assert (method, path) == ("POST", "/v1/push")
+    assert body["incident_id"] == "inc-123" and body["event"] == "triggered"
+    assert body["title"] == "Firing: #7 DB primary down"
+    assert "critical" in body["body"]
+
+
+def test_content_off_sends_only_the_incident_id(client, fake):
+    st.put({"relay_send_content": False}, "test")
+    SessionLocal.commit()
+    _, tok = _admin()
+    _, reg = _phone(client, tok)
+    delivery.send_push(SessionLocal, reg.json["id"], _Inc(), "triggered")
+    _, _, body = fake.calls[-1]
     assert body == {"device_id": next(iter(fake.devices)), "incident_id": "inc-123", "event": "triggered"}
     assert "DB primary" not in repr(fake.calls)
+
+
+def test_push_text_leads_with_the_open_alerts_summary(monkeypatch):
+    monkeypatch.setattr(delivery, "_history_line", lambda inc: "")
+    inc = _Inc()
+    inc.alerts = [_Alert("old one", resolved=True), _Alert("", "Replication lag\n  over 30s")]
+    title, body = delivery.push_text(inc, "triggered")
+    assert title == "Firing: #7 DB primary down"
+    assert body == "Replication lag over 30s critical · 1 open alert(s)."
+
+
+def test_push_text_says_what_resolved():
+    inc = _Inc()
+    inc.alerts, inc.resolved_by = [_Alert("Primary unreachable", resolved=True)], "anna"
+    title, body = delivery.push_text(inc, "resolved")
+    assert title == "Resolved: #7 DB primary down"
+    assert body == "Primary unreachable Resolved by anna."
+
+
+def test_push_text_is_capped(monkeypatch):
+    monkeypatch.setattr(delivery, "_history_line", lambda inc: "")
+    inc = _Inc()
+    inc.alerts = [_Alert("x" * 1000)]
+    assert len(delivery.push_text(inc, "triggered")[1]) == 400
 
 
 def test_events_the_relay_does_not_know_page_as_triggered(client, fake):

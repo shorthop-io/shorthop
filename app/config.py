@@ -170,6 +170,10 @@ EXPO_ACCESS_TOKEN = os.getenv("EXPO_ACCESS_TOKEN", "")
 # install's own credentials. Overridable on the admin Settings page.
 RELAY_URL = os.getenv("RELAY_URL", "")
 RELAY_KEY = os.getenv("RELAY_KEY", "")
+# Whether a page through the relay carries the incident's title and summary, so the lock screen
+# says WHAT fired or resolved. Off = the relay only ever gets an incident id and the phone shows
+# a generic "an incident needs your attention". Overridable on the admin Settings page.
+RELAY_SEND_CONTENT = os.getenv("RELAY_SEND_CONTENT", "true").lower() == "true"
 # How often the leader tells the relay which phones checked in, and reads back its warnings.
 RELAY_SYNC_INTERVAL_SECONDS = int(os.getenv("RELAY_SYNC_INTERVAL_SECONDS", "3600"))
 
